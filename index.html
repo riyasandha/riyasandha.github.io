@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Passport Photo Maker - HD</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" />
+<style>
+  body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f9f9f9; max-width: 600px; margin: auto; }
+  .step-box { background: #fff; border: 2px solid #007BFF; border-radius: 10px; padding: 20px; margin: 15px 0; }
+  h2 { margin-bottom: 10px; }
+  h3 { margin-top: 0; color: #007BFF; }
+  .upload-box { border: 2px dashed #ccc; padding: 20px; border-radius: 10px; cursor: pointer; transition: border-color 0.3s; }
+  .upload-box:hover { border-color: #007BFF; }
+  img { max-width: 100%; border-radius: 8px; }
+  #cropContainer { display: none; }
+  select, input, button { padding: 10px; margin: 8px 5px; font-size: 14px; border-radius: 5px; border: 1px solid #ccc; }
+  button { background: #007BFF; color: white; border: none; cursor: pointer; min-width: 120px; transition: background-color 0.3s; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: #0056b3; }
+  #bgColorPicker, #borderColor { vertical-align: middle; }
+  #borderOptions label { margin-right: 8px; }
+  #borderOptions input[type="number"] { width: 60px; }
+  #loading { display: none; margin-top: 10px; font-weight: bold; color: #007BFF; }
+</style>
+</head>
+<body>
+
+<h2>Passport Size Photo Maker - HD</h2>
+
+<!-- Step 1: Upload -->
+<div class="step-box">
+  <h3>1. Upload Image</h3>
+  <div class="upload-box" id="uploadBox" tabindex="0" role="button" aria-label="Upload Image">
+    <p>Click or press Enter to upload an image</p>
+    <input type="file" id="fileInput" accept="image/*" style="display:none" />
+  </div>
+</div>
+
+<!-- Step 2: Options -->
+<div class="step-box">
+  <h3>2. Choose Options</h3>
+  <label for="sizeSelect">Passport Size:</label>
+  <select id="sizeSelect" aria-label="Select passport photo size">
+    <option value="413x531" data-aspect="0.778">3.5 × 4.5 cm (413×531 px)</option>
+    <option value="600x600" data-aspect="1">2 × 2 inch (600×600 px)</option>
+    <option value="354x472" data-aspect="0.75">3 × 4 cm (354×472 px)</option>
+    <option value="448x448" data-aspect="1">1.5 × 1.5 inch (448×448 px)</option>
+  </select>
+  <br />
+  <label>Custom Size: </label>
+  <input type="number" id="customW" placeholder="Width px" min="1" style="width:80px;" />
+  ×
+  <input type="number" id="customH" placeholder="Height px" min="1" style="width:80px;" />
+  <button id="setCustomSizeBtn">Set</button>
+  <br />
+  <label for="bgColorPicker">Background Color:</label>
+  <input type="color" id="bgColorPicker" value="#FFFFFF" />
+  <br />
+  <div id="borderOptions">
+    <label for="borderColor">Border Color:</label>
+    <input type="color" id="borderColor" value="#007BFF" /><br>
+    <label for="borderThickness">Border Thickness (px):</label>
+    <input type="number" id="borderThickness" value="1.5" min="0" step="0.1" />
+  </div>
+</div>
+
+<!-- Step 3: Original Preview -->
+<div class="step-box">
+  <h3>3. Original</h3>
+  <div id="preview"></div>
+</div>
+
+<!-- Step 4: Crop & Adjust -->
+<div class="step-box" id="cropContainer" aria-live="polite" aria-label="Crop and adjust image">
+  <h3>4. Crop & Adjust</h3>
+  <div style="margin:10px 0;">
+    <button id="zoomInBtn">Zoom In</button>
+    <button id="zoomOutBtn">Zoom Out</button>
+    <button id="rotateLeftBtn">Rotate Left</button>
+    <button id="rotateRightBtn">Rotate Right</button>
+    <button id="resetCropBtn">Reset</button>
+  </div>
+  <img id="cropImage" alt="Image to crop" style="max-width:100%;" />
+  <br /><br />
+  <button id="applyCropBtn" disabled>Apply Crop</button>
+</div>
+
+<!-- Step 5: Final Result -->
+<div class="step-box">
+  <h3>5. Final Output</h3>
+  <div id="resultSection"></div>
+</div>
+
+<div id="loading">Processing image, please wait...</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+<script>
+const fileInput=document.getElementById("fileInput");
+const uploadBox=document.getElementById("uploadBox");
+const preview=document.getElementById("preview");
+const cropContainer=document.getElementById("cropContainer");
+const cropImage=document.getElementById("cropImage");
+const applyCropBtn=document.getElementById("applyCropBtn");
+const sizeSelect=document.getElementById("sizeSelect");
+const customW=document.getElementById("customW");
+const customH=document.getElementById("customH");
+const setCustomSizeBtn=document.getElementById("setCustomSizeBtn");
+const bgColorPicker=document.getElementById("bgColorPicker");
+const borderColorInput=document.getElementById("borderColor");
+const borderThicknessInput=document.getElementById("borderThickness");
+const loadingText=document.getElementById("loading");
+const resultSection=document.getElementById("resultSection");
+
+const zoomInBtn=document.getElementById("zoomInBtn");
+const zoomOutBtn=document.getElementById("zoomOutBtn");
+const rotateLeftBtn=document.getElementById("rotateLeftBtn");
+const rotateRightBtn=document.getElementById("rotateRightBtn");
+const resetCropBtn=document.getElementById("resetCropBtn");
+
+let cropper=null;
+let outputImage=null;
+let bgColor=bgColorPicker.value;
+
+// Upload click
+uploadBox.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileInput.click();}});
+uploadBox.addEventListener("click",()=>fileInput.click());
+
+fileInput.addEventListener("change",async()=>{
+  const file=fileInput.files[0]; if(!file) return;
+  resetState();
+  loadingText.style.display="block";
+  try{
+    const originalURL=URL.createObjectURL(file);
+    preview.innerHTML=`<img src="${originalURL}" alt="Original uploaded image" />`;
+
+    cropImage.src=originalURL;
+    cropContainer.style.display="block";
+    if(cropper) cropper.destroy();
+    cropper=new Cropper(cropImage,{
+      aspectRatio:getAspectRatio(),
+      viewMode:1,
+      background:false,
+      autoCropArea:1,
+      movable:true,
+      zoomable:true,
+      rotatable:true,
+      ready(){applyCropBtn.disabled=false;}
+    });
+  }catch(err){alert("Error: "+err.message); resetState();}
+  finally{loadingText.style.display="none";}
+});
+
+// crop controls
+zoomInBtn.addEventListener("click",()=>{if(cropper) cropper.zoom(0.1);});
+zoomOutBtn.addEventListener("click",()=>{if(cropper) cropper.zoom(-0.1);});
+rotateLeftBtn.addEventListener("click",()=>{if(cropper) cropper.rotate(-45);});
+rotateRightBtn.addEventListener("click",()=>{if(cropper) cropper.rotate(45);});
+resetCropBtn.addEventListener("click",()=>{if(cropper) cropper.reset();});
+
+// size
+sizeSelect.addEventListener("change",()=>{if(cropper) cropper.setAspectRatio(getAspectRatio());});
+setCustomSizeBtn.addEventListener("click",()=>{
+  const w=parseInt(customW.value),h=parseInt(customH.value);
+  if(w>0&&h>0){sizeSelect.value=`${w}x${h}`; if(cropper) cropper.setAspectRatio(w/h);}
+  else alert("Enter valid numbers");
+});
+
+// apply crop
+applyCropBtn.addEventListener("click",()=>{
+  if(!cropper) return;
+  let [w,h]=sizeSelect.value.split("x").map(Number);
+
+  const canvas=document.createElement("canvas");
+  canvas.width=w; canvas.height=h;
+  const ctx=canvas.getContext("2d");
+
+  const borderThickness=parseFloat(borderThicknessInput.value)||1.5;
+
+  ctx.fillStyle=bgColor;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.strokeStyle=borderColorInput.value;
+  ctx.lineWidth=borderThickness;
+  ctx.strokeRect(ctx.lineWidth/2,ctx.lineWidth/2,
+                 canvas.width-ctx.lineWidth,canvas.height-ctx.lineWidth);
+
+  const croppedCanvas=cropper.getCroppedCanvas({
+    width:w-borderThickness*2,
+    height:h-borderThickness*2,
+    fillColor:bgColor
+  });
+
+  ctx.drawImage(croppedCanvas,borderThickness,borderThickness,
+                w-borderThickness*2,h-borderThickness*2);
+
+  outputImage=canvas.toDataURL("image/png");
+  showResultImage();
+});
+
+// show result & download buttons
+function showResultImage(){
+  const borderThickness = parseFloat(borderThicknessInput.value) || 1.5;
+  resultSection.innerHTML = `
+    <div style="display:flex; justify-content:space-between; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+
+      <!-- Left: Single Passport Photo -->
+      <div style="flex:1; text-align:center; min-width:250px;">
+        <h4>Single Passport Photo</h4>
+        <img src="${outputImage}" alt="Final passport photo"
+          style="border:${borderThickness}px solid ${borderColorInput.value};
+                 background-color:${bgColor};
+                 border-radius:8px; max-width:100%; height:auto;" />
+        <br/><br/>
+        <button onclick="downloadDataURL(outputImage,'passport-photo.png')">Download Single</button>
+      </div>
+
+      <!-- Right: A4 Sheet Preview -->
+      <div style="flex:1; text-align:center; min-width:250px;">
+        <h4>Multiple Copies (A4 Sheet Preview)</h4>
+        <canvas id="sheetPreview" style="max-width:100%; border:1px solid #ccc;"></canvas>
+        <br/><br/>
+        <button onclick="generateA4Sheet(true)">Download A4 Sheet</button>
+      </div>
+
+    </div>
+  `;
+  generateA4Sheet(false); // show preview
+}
+
+// unified function for preview & download
+function generateA4Sheet(download=false){
+  const a4Width=2480, a4Height=3508;
+  const margin=100;   // bigger page margin (~8.5 mm)
+  const gap=60;       // bigger gap between photos (~5 mm)
+
+  const img=new Image();
+  img.onload=()=>{
+    const cols=5; // fewer columns since gaps are bigger
+    const rows=7; // fewer rows
+
+    const totalGapX=(cols-1)*gap;
+    const totalGapY=(rows-1)*gap;
+
+    const availableW=a4Width-2*margin-totalGapX;
+    const availableH=a4Height-2*margin-totalGapY;
+
+    const photoWidth=availableW/cols;
+    const photoHeight=availableH/rows;
+
+    const canvas=document.createElement("canvas");
+    canvas.width=a4Width; canvas.height=a4Height;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#fff";
+    ctx.fillRect(0,0,a4Width,a4Height);
+
+    // draw grid with margins + gaps
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const x=margin+c*(photoWidth+gap);
+        const y=margin+r*(photoHeight+gap);
+        ctx.drawImage(img,x,y,photoWidth,photoHeight);
+      }
+    }
+
+    if(download){
+      const link=document.createElement("a");
+      link.download="passport-a4.png";
+      link.href=canvas.toDataURL("image/png");
+      link.click();
+    }else{
+      const previewCanvas=document.getElementById("sheetPreview");
+      const scale=3;
+      previewCanvas.width=a4Width/scale;
+      previewCanvas.height=a4Height/scale;
+      const pctx=previewCanvas.getContext("2d");
+      pctx.drawImage(canvas,0,0,previewCanvas.width,previewCanvas.height);
+    }
+  };
+  img.src=outputImage;
+}
+
+// helpers
+function resetState(){preview.innerHTML="";resultSection.innerHTML="";cropContainer.style.display="none";outputImage=null;applyCropBtn.disabled=true;if(cropper){cropper.destroy();cropper=null;}}
+function getAspectRatio(){const opt=sizeSelect.selectedOptions[0];if(opt&&opt.dataset.aspect)return parseFloat(opt.dataset.aspect);const[w,h]=sizeSelect.value.split("x").map(Number);return w&&h?w/h:NaN;}
+function downloadDataURL(dataURL,filename){const link=document.createElement("a");link.href=dataURL;link.download=filename;document.body.appendChild(link);link.click();link.remove();}
+</script>
+</body>
+</html>
