@@ -25,6 +25,11 @@
   <label>Upload Photo</label>
   <input type="file" id="file" accept="image/*">
 
+  <div id="finalPreviewContainer" style="display:none; margin-top:10px;">
+  <p>Cropped Preview:</p>
+  <img id="finalPreview" style="max-width:150px; border:1px solid #ccc; padding:4px;">
+</div>
+
   <!-- Crop UI -->
   <div id="cropContainer">
     <p>Adjust crop, then click "Confirm Crop".</p>
@@ -104,15 +109,25 @@
       viewMode: 1
     });
   });
+confirmCropBtn.addEventListener('click', ()=>{
+  if(!cropper) return;
+  const croppedCanvas = cropper.getCroppedCanvas();
 
-  confirmCropBtn.addEventListener('click', ()=>{
-    if(!cropper) return;
-    const croppedCanvas = cropper.getCroppedCanvas();
-    img = new Image();
-    img.onload = ()=> alert("Crop confirmed! Now set size and click Generate.");
-    img.src = croppedCanvas.toDataURL("image/jpeg", 0.9);
-    cropContainer.style.display = "none";
-  });
+  // main working image
+  img = new Image();
+  img.src = croppedCanvas.toDataURL("image/jpeg", 0.9);
+
+  // show cropped preview
+  const previewCanvas = document.getElementById('croppedPreviewCanvas');
+  const ctxPrev = previewCanvas.getContext('2d');
+  previewCanvas.width = croppedCanvas.width;
+  previewCanvas.height = croppedCanvas.height;
+  ctxPrev.clearRect(0,0,previewCanvas.width, previewCanvas.height);
+  ctxPrev.drawImage(croppedCanvas,0,0);
+
+  document.getElementById('previewBox').style.display = "block";
+  cropContainer.style.display = "none";
+});
 
   genBtn.addEventListener('click', ()=>{
     if(!img) return alert("Upload & crop a photo first!");
